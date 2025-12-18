@@ -30,9 +30,12 @@ export interface EntityModification {
   instruction: string;
 }
 
-export interface TransformationResult {
+export interface HistoryItem {
+  id: string;
   originalUrl: string;
   transformedUrl: string;
-  style: ArtStyle;
+  styleLabel: string;
   timestamp: number;
 }
+
+export type AspectRatio = '1:1' | '4:3' | '3:4' | '16:9' | '9:16' | 'original';

@@ -1,12 +1,13 @@
 
 import { GoogleGenAI, Type } from "@google/genai";
-import { ArtStyle, StyleOption, TextReplacement, EntityModification } from "../types";
+import { ArtStyle, StyleOption, TextReplacement, EntityModification, AspectRatio } from "../types";
 
 const IMAGE_MODEL = 'gemini-2.5-flash-image';
 const TEXT_MODEL = 'gemini-3-flash-preview';
 
 export const detectTextInImage = async (base64Image: string): Promise<string[]> => {
-  const ai = new GoogleGenAI({ apiKey: process.env.API_KEY || '' });
+  // Fix: Initialize GoogleGenAI correctly with named parameter
+  const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
   const base64Data = base64Image.split(',')[1] || base64Image;
   const mimeType = base64Image.split(';')[0].split(':')[1] || 'image/png';
 
@@ -35,9 +36,11 @@ export const detectTextInImage = async (base64Image: string): Promise<string[]> 
       }
     });
 
-    const text = response.text;
+    // Fix: Access response.text directly (it's a property, not a method)
+    const text = response.text?.trim();
     if (text) {
-      return JSON.parse(text);
+      const cleaned = text.replace(/^```json\s*/, '').replace(/\s*```$/, '');
+      return JSON.parse(cleaned);
     }
     return [];
   } catch (error) {
@@ -47,7 +50,8 @@ export const detectTextInImage = async (base64Image: string): Promise<string[]> 
 };
 
 export const detectEntitiesInImage = async (base64Image: string): Promise<string[]> => {
-  const ai = new GoogleGenAI({ apiKey: process.env.API_KEY || '' });
+  // Fix: Initialize GoogleGenAI correctly with named parameter
+  const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
   const base64Data = base64Image.split(',')[1] || base64Image;
   const mimeType = base64Image.split(';')[0].split(':')[1] || 'image/png';
 
@@ -63,7 +67,7 @@ export const detectEntitiesInImage = async (base64Image: string): Promise<string
             },
           },
           {
-            text: "Identify the main subjects in this image (e.g., 'Person', 'Background', 'Building', 'Dog'). Focus on 2-3 most prominent elements. Return them as a simple JSON array of strings. Only return the JSON array.",
+            text: "Analyze this image and identify the 3-5 most distinct visual entities or subjects. Be descriptive and granular (e.g., 'Woman in red dress', 'Modern skyscraper', 'Lush forest background', 'Vintage wooden table', 'Neon city lights'). These entities will be presented to the user for individual modification. Return ONLY a valid JSON array of strings. Do not include markdown formatting or conversational text.",
           },
         ],
       },
@@ -76,14 +80,19 @@ export const detectEntitiesInImage = async (base64Image: string): Promise<string
       }
     });
 
-    const text = response.text;
+    // Fix: Access response.text directly (it's a property, not a method)
+    const text = response.text?.trim();
     if (text) {
-      return JSON.parse(text);
+      const cleaned = text.replace(/^```json\s*/, '').replace(/\s*```$/, '');
+      const parsed = JSON.parse(cleaned);
+      if (Array.isArray(parsed) && parsed.length > 0) {
+        return parsed;
+      }
     }
-    return [];
+    return ["主体人物", "主体背景", "核心对象"];
   } catch (error) {
     console.error("Entity Detection Error:", error);
-    return ["Person", "Background"]; // Fallback defaults
+    return ["主体人物", "环境背景", "视觉重心"];
   }
 };
 
@@ -92,9 +101,11 @@ export const transformImage = async (
   style: StyleOption,
   customPrompt: string = "",
   textReplacements: TextReplacement[] = [],
-  entityModifications: EntityModification[] = []
+  entityModifications: EntityModification[] = [],
+  aspectRatio?: AspectRatio
 ): Promise<string> => {
-  const ai = new GoogleGenAI({ apiKey: process.env.API_KEY || '' });
+  // Fix: Initialize GoogleGenAI correctly with named parameter
+  const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
   
   const base64Data = base64Image.split(',')[1] || base64Image;
   const mimeType = base64Image.split(';')[0].split(':')[1] || 'image/png';
@@ -118,12 +129,18 @@ export const transformImage = async (
   if (entityModifications.length > 0) {
     const modInstructions = entityModifications
       .filter(em => em.instruction.trim() !== "")
-      .map(em => `Modify the ${em.entity}: ${em.instruction}.`)
+      .map(em => `Specifically for the "${em.entity}", modify it as follows: ${em.instruction}.`)
       .join(" ");
     
     if (modInstructions) {
       finalPrompt += ` SUBJECT MODIFICATIONS: ${modInstructions}`;
     }
+  }
+
+  // Prepare optional configuration like aspectRatio for gemini-2.5-flash-image
+  const config: any = {};
+  if (aspectRatio && aspectRatio !== 'original') {
+    config.imageConfig = { aspectRatio };
   }
 
   try {
@@ -142,8 +159,10 @@ export const transformImage = async (
           },
         ],
       },
+      config,
     });
 
+    // Fix: Correctly iterate through parts to find image data as per guidelines
     const candidates = response.candidates;
     if (candidates && candidates.length > 0) {
       for (const part of candidates[0].content.parts) {
